@@ -551,7 +551,7 @@ local function DealWithInput(input: InputObject, gameProcessed: boolean)
 						_GSteerT = 0
 					end
 				end
-				
+
 				-- Gamepad Throttle
 			elseif input.KeyCode == _CTRL["ContlrThrottle"] then
 				_IThrot = math.max(0,input.Position.Z)
@@ -775,6 +775,12 @@ local function Steering(dt: number)
 			data.SteerAttach0.Orientation = Vector3.new(0, data.CanSteer==1 and 0 or _GSteerC*angle*rsteerVariableAngle, 0)
 		else
 			data.Steer.CFrame = data.Base.CFrame * (data.CanSteer == 1 and CFrame.new(0,0,0) or (CFrame.Angles(0, -math.rad(_GSteerC*angle*rsteerVariableAngle), 0)))
+			-- Crappy solution to solve the body creeping forward
+			if data.Steer.CFrame.Rotation:AngleBetween(wheel.CFrame.Rotation) < 3.5 then
+				data.Steer.MaxTorque = Vector3.new(0, 5000, 0)
+			else
+				data.Steer.MaxTorque = Vector3.new(0, 20000, 0)
+			end
 		end
 	end
 end
@@ -830,7 +836,7 @@ end
 
 local function Gear()
 	local fFDr = (_Tune.FinalDrive * _Tune.FDMult) * 30 / math.pi
-	
+
 	if _ShiftUp and not _Shifting then
 		if (_TMode == "Manual" and not _ClPressing) or (_TMode == "Manual" and _Tune.ClutchRel and (_InThrot > 0)) or _CGear == #_Tune.Ratios - 2 - ParkingGearOffset or (_TMode ~= "Manual" and not _IsOn) then 
 			_ShiftUp = false 
@@ -917,7 +923,7 @@ local function Engine(dt: number)
 			_CVTRatio = _Tune.CVTMaxRatio
 		end
 	end
-	
+
 	-- Update ratio
 	_CurrentRatio = _Tune.ClutchType == "CVT" and _CVTRatio or _Tune.Ratios[_CGear+2+ParkingGearOffset]
 	_spLimit = _Tune.Redline/(fFDr*_CurrentRatio)
@@ -1060,21 +1066,21 @@ local function Engine(dt: number)
 	-- Torque calculations (Detomiks)
 	-- What you see here is mostly just ported over from Desmos.
 	if not engine or _Tune.CustomEngineCalculations == false then
-		local x = _RPM/1000
+		local RPMk = _RPM/1000
 		local NTorque = 0
 		local ETorque = 0
 		local TTorque = 0
 		local STorque = 0
 		if _Tune.Engine then
-			local NIdleTorque = f(_Tune.IdleRPM/1000, _Tune.IdleTorque, _Tune.PeakTorqueRPM/1000, _Tune.PeakTorque, _Tune.PeakTorque, _Tune.IdleTorqueCurve, x)
-			local NRedlineTorque = f(_Tune.PeakTorqueRPM/1000, _Tune.PeakTorque, _Tune.Redline/1000, _Tune.RedlineTorque, _Tune.PeakTorque, 1/_Tune.RedlineTorqueCurve, x)
-			local VVL = _Tune.VVLTorque > 0 and _Tune.VVLTorque - f(_Tune.VVLRPM/1000, 0, (_Tune.VVLRPM + _Tune.VVLTime)/1000, _Tune.VVLTorque, _Tune.VVLTorque, _Tune.VVLCurve, x) or 0
+			local NIdleTorque = f(_Tune.IdleRPM/1000, _Tune.IdleTorque, _Tune.PeakTorqueRPM/1000, _Tune.PeakTorque, _Tune.PeakTorque, _Tune.IdleTorqueCurve, RPMk)
+			local NRedlineTorque = f(_Tune.PeakTorqueRPM/1000, _Tune.PeakTorque, _Tune.Redline/1000, _Tune.RedlineTorque, _Tune.PeakTorque, 1/_Tune.RedlineTorqueCurve, RPMk)
+			local VVL = _Tune.VVLTorque > 0 and _Tune.VVLTorque - f(_Tune.VVLRPM/1000, 0, (_Tune.VVLRPM + _Tune.VVLTime)/1000, _Tune.VVLTorque, _Tune.VVLTorque, _Tune.VVLCurve, RPMk) or 0
 			local AirPressurePercent = math.exp((-9.80665 * 0.0289644 * (_Center.Y * Units.Length_mm / 1000)) / (8.3142 * (GlobalTemperature + 273.15))) -- look up the barometric formula 
 			NTorque = 1 * (_Tune.PeakTorque - NIdleTorque - NRedlineTorque + VVL) * AirPressurePercent
-			_NH, _NT = (NTorque*x)/5.252, NTorque
+			_NH, _NT = (NTorque*RPMk)/5.252, NTorque
 
 			if _Tune.Turbochargers > 0 then
-				local _TBoostGoal = _Tune.Turbochargers * ((_GThrot^3) * (100/_Tune.T_Size) * ((NTorque*x)/5.252) - f(_Tune.IdleRPM/1000, _Tune.T_IdleBoost, _Tune.T_PeakRPM/1000, _Tune.T_Boost, (_GThrot^3) * (100/_Tune.T_Size) * ((NTorque*x)/5.252), 1/_Tune.T_Curve, x))
+				local _TBoostGoal = _Tune.Turbochargers * ((_GThrot^3) * (100/_Tune.T_Size) * ((NTorque*RPMk)/5.252) - f(_Tune.IdleRPM/1000, _Tune.T_IdleBoost, _Tune.T_PeakRPM/1000, _Tune.T_Boost, (_GThrot^3) * (100/_Tune.T_Size) * ((NTorque*RPMk)/5.252), 1/_Tune.T_Curve, RPMk))
 				if _TBoostGoal > _TBoost then
 					_TBoost = _TBoost + math.min(_Tune.T_SpoolIncrease*(_TBoostGoal-_TBoost), _Tune.T_SpoolIncrease * (10/_Tune.T_Size) * _Tune.Turbochargers) * deltaTime -- i should probably base this off of the maximum horsepower instead of the RPM, but it's the same thing anyway
 				elseif _TBoost > _TBoostGoal then
@@ -1082,11 +1088,11 @@ local function Engine(dt: number)
 				end
 				_TBoost = math.clamp(_TBoost, 0, _Tune.Turbochargers * _Tune.T_Boost)
 				TTorque = _TBoost * _Tune.T_Efficiency
-				_TH, _TT = (TTorque*x)/5.252, TTorque
+				_TH, _TT = (TTorque*RPMk)/5.252, TTorque
 			end
 			if _Tune.Superchargers > 0 then
-				local SIdleBoost = f(_Tune.IdleRPM/1000, _Tune.S_IdleBoost, _Tune.S_PeakRPM/1000, _Tune.S_Boost, _Tune.S_Boost, _Tune.S_IdleCurve, x)
-				local SRedlineBoost = f(_Tune.S_PeakRPM/1000, _Tune.S_Boost, _Tune.Redline/1000, _Tune.S_RedlineBoost, _Tune.S_Boost, 1/_Tune.S_RedlineCurve, x)
+				local SIdleBoost = f(_Tune.IdleRPM/1000, _Tune.S_IdleBoost, _Tune.S_PeakRPM/1000, _Tune.S_Boost, _Tune.S_Boost, _Tune.S_IdleCurve, RPMk)
+				local SRedlineBoost = f(_Tune.S_PeakRPM/1000, _Tune.S_Boost, _Tune.Redline/1000, _Tune.S_RedlineBoost, _Tune.S_Boost, 1/_Tune.S_RedlineCurve, RPMk)
 				local _SBoostGoal = _Tune.Superchargers * _GThrot * (_Tune.S_Boost - SIdleBoost - SRedlineBoost)
 				if _SBoostGoal > _SBoost then
 					_SBoost = math.min(_SBoost + _Tune.S_Boost*_Tune.S_Response*deltaTime, _SBoostGoal)
@@ -1094,18 +1100,18 @@ local function Engine(dt: number)
 					_SBoost = math.max(_SBoost - _Tune.S_Boost*_Tune.S_Response*deltaTime, _SBoostGoal)
 				end
 				STorque = _SBoost * _Tune.S_Efficiency
-				_SH, _ST = (STorque*x)/5.252, STorque
+				_SH, _ST = (STorque*RPMk)/5.252, STorque
 			end
 			if _Tune.Turbochargers > 0 or _Tune.Superchargers > 0 then
-				_BH, _BT = ((TTorque+STorque)*x)/5.252, TTorque+STorque
+				_BH, _BT = ((TTorque+STorque)*RPMk)/5.252, TTorque+STorque
 			end
 		end
 		if _Tune.Electric then
-			ETorque = 1 * (_Tune.E_Torque - f(_Tune.E_TransitionRPM/1000, _Tune.E_Torque, _Tune.E_Redline/1000, _Tune.E_RedlineTorque, _Tune.E_Torque, _Tune.E_Curve, x))
-			_EH, _ET = (ETorque*x)/5.252, ETorque
+			ETorque = 1 * (_Tune.E_Torque - f(_Tune.E_TransitionRPM/1000, _Tune.E_Torque, _Tune.E_Redline/1000, _Tune.E_RedlineTorque, _Tune.E_Torque, _Tune.E_Curve, RPMk))
+			_EH, _ET = (ETorque*RPMk)/5.252, ETorque
 		end
-		local TotalTorque = math.clamp(NTorque + ETorque + TTorque + STorque, _Tune.Stall and 0 or _Tune.IdleTorque, (_Tune.HPLimit > 0 and _Tune.HPLimit or math.huge)*(5.252/x))
-		_HP, _TQ = (TotalTorque*x)/5.252, TotalTorque
+		local TotalTorque = math.clamp(NTorque + ETorque + TTorque + STorque, _Tune.Stall and 0 or _Tune.IdleTorque, (_Tune.HPLimit > 0 and _Tune.HPLimit or math.huge)*(5.252/RPMk))
+		_HP, _TQ = (TotalTorque*RPMk)/5.252, TotalTorque
 	else
 		engine.run({
 			-- Manually add environment variables here
@@ -1120,7 +1126,7 @@ local function Engine(dt: number)
 		_TBoost = engine._TBoost
 		_SBoost = engine._SBoost
 
-		_HP = engine._HP
+		_HP = (engine._TQ*_RPM)/5252
 		_TQ = engine._TQ
 		_NH = engine._NH
 		_NT = engine._NT
